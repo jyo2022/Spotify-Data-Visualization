@@ -1,0 +1,340 @@
+---
+title: "DSA2101 Group Project"
+output:
+  output: html_document
+  df_print: paged
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, fig.align = "center")
+```
+
+## Exploring music across genres and time
+
+By Group S (Anzelle, Binali, Jia Yee, Sandy)
+
+## Introduction
+
+Listening to music has never been easier with audio-streaming services available on the go. The advent of services like Spotify has helped to facilitate the spread of music to people all over the world. Its ubiquitous presence in our lives means that studying data obtained from the platform may give us insights into listening trends and how song properties have evolved over time.   
+
+We will investigate the following in our project:   
+1. How does song popularity vary across genres and is danceability a key indicator of how popular a song is?  
+2. How has track duration changed in terms of tracks produced and track popularity?  
+
+We hope our visualisations will reveal to both readers and ourselves, patterns in music over time and certain audio features that people subconsciously find appealing.  
+
+## Data Description
+
+Our group has gotten this data from the TidyTuesday project; it was collected by Kaylin Pavlik from Spotify, an audio-streaming platform, with the help of the “spotifyr” package. Pavlik selected 6 genres and 24 sub-genres to be used to find 471 playlists (20 for each sub-genre; there may be potential cleaning reducing it from 480.) In the data, we are provided with information about various tracks and the playlists they were found in, such as track popularity score, track duration and playlist genre. During cleaning, we removed 6 rows as they contained missing or anomalous values, which is not substantial compared to the original dimensions of 32833 rows and 23 columns. Due to some missing month and day values in `track_album_release_date`, year values will be isolated and primarily used over other time values.  
+
+Prior to getting the summary statistics, we removed duplicate rows that were a result of adding the same song to multiple different playlists. We want to roughly understand how danceable and popular the songs in our data are, as well as look at how many songs from each decade are in our data. From the results, we can see that the songs in the data have high danceability scores, lower popularity scores and an overwhelming majority of the songs were released in the last decade. 
+
+```{r q0}
+## Loading packages
+library(tidyverse)
+library(ggrepel) 
+library(ggthemes)
+
+## Reading in Data
+spotify = readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-01-21/spotify_songs.csv')
+
+## Checking Missing/Unusual Values
+#sum(is.na(spotify)) # 15 NA values in the data
+#sapply(spotify, function(x) sum(is.na(x))) # breakdown of NAs by variable
+#spotify[rowSums(is.na(spotify)) > 0, ] # extract rows with NAs for inspection
+
+# 0 tempo value detected from summary(spotify) 
+idx = which(spotify$tempo == 0) 
+#spotify[idx,] # extract row with anomalous tempo value
+
+## Removing Missing/Unusual Values
+spotify_cl = spotify[-idx,] # remove anomalous tempo value row
+spotify_cl = na.omit(spotify_cl) # removes all NAs from data
+
+## Creating year, month, day variables from track_album_release_date
+spotify_cl = spotify_cl %>%
+  separate(track_album_release_date, sep = "-",
+           into = c("year", "month", "day")) %>%
+  mutate(year = as.numeric(year))
+
+## Making Decade variable from year Variable 
+# for use in descriptive stats and visualisation later
+spotify_cl = within(spotify_cl, {
+  Decade = NA
+  Decade[year > 2010 & year <= 2020] = "2011 - 2020"
+  Decade[year > 2000 & year <= 2010] = "2001 - 2010"
+  Decade[year > 1990 & year <= 2000] = "1991 - 2000"
+  Decade[year > 1980 & year <= 1990] = "1981 - 1990"
+  Decade[year > 1970 & year <= 1980] = "1971 - 1980"
+  Decade[year > 1960 & year <= 1970] = "1961 - 1970"
+  Decade[year >1950 & year <= 1960] = "1951 - 1960"}) %>% 
+  mutate(Decade = as.factor(Decade))
+
+## Descriptive Stats
+desc_stats = spotify_cl %>%
+  select(track_id, track_popularity, danceability, Decade) %>% 
+  distinct() %>%
+  summary()
+desc_stats
+```
+
+## Investigate how popularity varies across genres and if danceability is a key indicator of how popular a song is.
+
+### Introduction
+
+Every song has its own unique set of audio features determined by the Spotify algorithm, that makes it distinguishable and special. In the dataset, songs are classified into six main genres and further divided into unique sub-genres. For this question, we require: genre, popularity, and audio features (danceability and energy). We decided to explore this question due to the rising popularity of Tik Tok, and the increased prevalence of video clips featuring people dancing to catchy music in recent years. Hence, we hypothesise that the more danceable songs are likely to gain more traction.
+
+### Methodology
+
+The first visualisation is a box plot layered on top of a scatterplot with the Y-axis representing the genre of songs, X-axis representing song popularity, and the colour gradient of dots representing danceability.  A box plot was used because it makes comparison of the popularities of the different genres easier to understand as it highlights the median, interquartile range and spread. Labelled median values for `track_popularity` were added to help readers easily identify the different popularities for each genre. Colour of the data points were used to accentuate the spread of `danceability` across popularity for each genre. From the plot, there seems to be no clear correlation between danceability and popularity, but it is instead related to the genre. 
+
+Following our findings, we go into our second visualisation to see if there are any other factors actually at play. We investigated each audio feature and realised that when plotting danceability against energy, distinct clusters between genres are evident. For the second visualisation, we used the Y-axis and X-axis to represent the mean danceability and mean energy within each sub-genre respectively. Colour was used to denote genre and size of the points represented the mean popularity within the sub-genre. In this case, since both danceability and energy are continuous variables, a scatterplot would be most suitable as it allows distinct plotting data points for the various sub-genres. We also added ellipses to highlight the clusters so that they will be more obvious to the reader. 
+
+### Visualizations
+
+```{r q11}
+## Select variables of interest
+q1_ds1 = spotify_cl %>% 
+  group_by(playlist_genre) %>%
+  summarise(track_popularity = median(track_popularity, na.rm = TRUE))
+
+## Visualisation- Boxplot with scatterplot 
+q1_p1_colsch  = rev(c("yellow", "yellow",
+             "firebrick1", "darkorchid1", "blue",
+             "black", "black"))
+q1_p1 = spotify_cl %>% 
+  ggplot(aes(x = track_popularity, 
+             y = reorder(playlist_genre, track_popularity))) +
+  geom_point(position = "jitter", 
+             aes(colour = danceability), alpha = 0.25) +
+  scale_color_gradientn(colours = q1_p1_colsch, name = "Danceability",
+                        limits=c(0,1)) +
+  geom_boxplot(alpha = 0.7, size = 0.6) +
+  labs(title = "Median track popularity for each genre",
+       x = "Track Popularity", y = "Playlist Genre") +
+  geom_label(data = q1_ds1,
+             aes(label = track_popularity  , y = playlist_genre)) +
+  theme_tufte() +
+  theme(plot.title = element_text(size = 14, face = "bold"))
+
+q1_p1
+```
+
+```{r q12}
+## Select variables of interest
+q1_ds2 = spotify_cl %>%
+  group_by(playlist_genre, playlist_subgenre) %>%
+  summarise(mean_energy = mean(energy, na.rm = TRUE),
+            mean_danceability= mean(danceability, na.rm = TRUE),
+            median_popularity = median(track_popularity, na.rm = TRUE),
+            mean_popularity = mean(track_popularity, na.rm = TRUE))
+
+## Colour scheme
+q1_p2_colsch = c("red", "darkorange2", "goldenrod1", 
+                 "darkolivegreen2", "lightskyblue", "thistle2")
+
+## Visualisation- scatterplot with ellipses
+q1_p2 = ggplot(data = q1_ds2, aes(x = mean_energy, y = mean_danceability)) +
+  geom_point(aes(size = mean_popularity, 
+                 colour = reorder(playlist_genre, -median_popularity))) + 
+  stat_ellipse(aes(fill = reorder(playlist_genre, -median_popularity)), 
+               geom = "polygon", alpha = 0.3, level = 0.8) +
+  geom_text_repel(aes(label = playlist_subgenre), size = 3.5) + 
+  labs(x = "Mean Energy", y = "Mean Danceability", 
+       title = "Distribution of Genres by Mean Danceability and Mean Energy",
+       size = "Mean Popularity", colour = "Genre", fill = "Genre") +
+  scale_color_manual(values = q1_p2_colsch) +
+  scale_fill_manual(values = q1_p2_colsch) +
+  theme_tufte() + 
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        axis.text = element_text(size = 12),
+        legend.text = element_text(size = 12))
+
+q1_p2
+```
+
+### Discussions  
+
+From the first plot, it can be seen that the most popular genre within our data is Pop, and the least popular is EDM. Danceability seems to be higher than average for Latin and Rap, and lower than average for Rock. Evidently Pop is the most popular genre even though its songs have lower danceability than Latin and Rap, which come in second and third place respectively. A possible reason is that Pop is commonly used as an umbrella term for songs that produce the most hits. Thus, it may encompass a larger range of music with varying audio features. The widespread appeal and versatility of Pop also means that it can be played in many different environments and settings, which could be the reason for higher popularity scores. 
+
+For the second visualisation, we hope that when another factor (energy) is brought into the picture, readers will be able to identify how different combinations of levels of danceability and energy contribute to a genre’s popularity. The most popular genres all have medium levels of energy and medium to high levels of danceability. This suggests that people enjoy songs of more moderate intensity instead of the mellower or more energetic ones located at the ends of the energy spectrum. Findings from a study in 2018 on how the intensity of songs affect emotional experience showed that medium music evoked the strongest emotional arousal. This trend can be seen from the plot whereby the top 4 most popular genres are all generally of medium energy levels.
+
+A limitation we observed is that the assignment of song genres are based on the playlist that the song was added to and possibly not what the track artist had originally intended. However, it is worth noting that the songs were taken from “Every Noise”, a visualisation of Spotify’s entire genre space which is maintained by a “genre taxonomist”, making the labels somewhat reliable. Even though both plots show a clear diversion from our initial hypothesis that danceable songs are more popular, the second plot still shows some overlaps between genres such as “new jack swing”, that cannot be explained by merely two audio features. While music taste and preferences will always be a topic of debate due to its subjectivity to the unique individual, insights from data could still help to paint a general picture on listening trends.
+   
+## How has track duration changed in terms of tracks produced and track popularity?  
+  
+### Introduction
+  
+Being able to record music used to be a miracle, a rarity. However, with the advancements in sound engineering, we have transitioned from vinyl records, to compact discs (CDs) to audio softwares, and longer songs can be produced. But is that the case? Are songs produced getting longer? Are longer songs even popular? We aim to find out in this project how song duration has changed over the decades by looking at track duration, track popularity, and album release date (seen as synonymous with track release date).
+  
+### Methodology
+  
+For the first visualisation, we have a multiple probability density plot of track duration, where various curves represent song duration distribution in various decades. This plot has been chosen as it allows readers to compare track duration distributions over the decades at a glance, as well as identify mode duration values easily. The shape of the density curves, together with labelled mode values, will help readers see a trend in track duration easily. It is to be noted that for identical songs released in different markets (essentially the same track but with different `track_id`), only one song is kept for analysis for the density plot as we require only one duration value.
+
+For the second visualisation we chose a 2D histogram as both variables under consideration (track popularity and track duration) are continuous. We divided the data by year, and stacked the plots on top of each other to make comparisons between years easier. Moreover, we felt this plot type allowed users to best see how the observations are spread out through the years. (Some years had more observations than others). Furthermore, we added a median line, to show to readers how the song duration has changed over the years. As there were many outliers in each year, we realised the data was skewed, and hence chose to display the median over the mean. The outliers were not removed as they could be different kinds of songs (film scores, musicals, etc.) or simply the artist's choice, and hence needed to be considered.   
+
+### Visualizations
+
+```{r q21}
+## Select variables of interest
+# Only 1 duration value needed for identical songs released in different markets
+q2_ds1 = spotify_cl %>% 
+  select(-track_popularity, -(playlist_name:playlist_subgenre)) %>%
+  distinct(track_name, track_artist, track_album_name,
+           year, month, day, danceability, energy, key,
+           loudness, mode, speechiness, acousticness, instrumentalness,
+           liveness, valence, tempo, duration_ms, 
+           .keep_all = TRUE) %>% 
+  select(Decade, duration_ms)
+
+## Count percentage of number of values for each Decade
+count1 = count(q2_ds1, Decade) %>%
+  mutate(percent = n/sum(n) * 100)
+# only data from 1991 onwards is at least 5% of the original data
+
+## Filter out data from 1991-2020 for use
+q2_ds1 = q2_ds1 %>% 
+  filter(Decade %in% c("2011 - 2020", "2001 - 2010", "1991 - 2000"))
+
+## Prepare data for plot labels
+q2_p1_labels = q2_ds1 %>% 
+  group_by(Decade) %>%
+  summarise(
+    peak_id = which.max(density(duration_ms/1000)$y),
+    peak_x = density(duration_ms/1000)$x[peak_id],
+    peak_y = density(duration_ms/1000)$y[peak_id]) %>%
+  arrange(desc = TRUE)
+adjustment = 0.0075 - c(0.0025, 0.0045, 0.0065)
+q2_p1_labels = cbind(q2_p1_labels, adjustment)
+
+## Visualisation - density plot (continuous variable duration)
+q2_p1_colsch = c("lightskyblue", "slateblue1", "darkslateblue")
+q2_p1 = 
+  ggplot(q2_ds1, aes(x = duration_ms/1000, colour = Decade)) +
+  geom_segment(data = q2_p1_labels, 
+               aes(x = peak_x, y = peak_y, xend = peak_x, yend = 0), 
+               linetype = "dashed",  size = 0.9, alpha = 1.0) +
+  geom_density(aes(fill = Decade), alpha = 0.2, size = 1.3) +
+  geom_label(data = q2_p1_labels,
+             mapping = aes(x = peak_x, y = adjustment, 
+                           label = round(peak_x),
+                           fill = Decade),
+             colour = "white", fontface = "bold") +
+  scale_x_continuous(breaks = append(0, seq(0, 550, by = 100)), 
+                     limits = c(0, 550)) +
+  labs(title = "Track Duration through the Decades",
+       x = "Track Duration (in seconds)", y = "Density") +
+  theme_tufte() +
+  scale_colour_manual(values = q2_p1_colsch) +
+  scale_fill_manual(values = q2_p1_colsch) +
+  theme(title = element_text(size = 14),
+        plot.title = element_text(face = "bold"),
+        legend.position = c(0.85, 0.5),
+        axis.text = element_text(size = 12),
+        legend.text = element_text(size = 12),
+        aspect.ratio = 1/2.45)
+
+q2_p1
+```
+
+
+```{r, fig.width=10,fig.height=11}
+
+q2_ds2 = spotify_cl %>%
+  mutate(duration_min = duration_ms/(1000*60)) %>%
+  select(track_id, track_popularity, duration_min, year)
+
+#Round track duration to 2 decimal places
+q2_ds2$duration_min = round(q2_ds2$duration_min, digits = 2)
+
+#Convert the year column to numeric and filter out rows where year >= 2010
+q2_ds2 = q2_ds2 %>%
+  mutate(year = as.numeric(year)) %>%
+  filter(year >= 2010) 
+
+#Plot track duration against track popularity for each year
+q2_p2 = ggplot(q2_ds2, aes(x = duration_min, y = track_popularity )) +
+  theme_tufte() +
+  scale_x_continuous(breaks = seq(0,10, by = 0.5)) +
+  labs(x = "Track Duration (minutes)",
+       y = "Track Popularity",
+       title = "Track Duration Vs Track Popularity Over the Past 11 Years" ) +
+  geom_bin2d(binwidth = c(0.1,5)) +
+  scale_fill_gradient(name = "Count", low = "steelblue3" , high = "red") +
+  theme(plot.title = element_text(face = "bold"), strip.text = element_text(face = "bold"), strip.text.y = element_text(angle = 0)) +
+  facet_grid(year ~.)
+
+#Check for outliers to determine whether to use mean or median 
+
+outliers = q2_ds2 %>% 
+  group_by(year)  %>%
+  mutate (q1 = quantile(duration_min, 0.25),
+          	    q3 = quantile(duration_min, 0.75),
+               IQR = IQR(duration_min))
+
+outliers = outliers %>%
+  mutate(max_duration = q3 + 1.5 * IQR,
+         min_duration = q1 - 1.5 * IQR) %>%
+  filter(duration_min > max_duration | duration_min < min_duration)
+
+#outliers %>% 
+#  count(year)
+
+#The Outliers dataframe is not empty. Each year has many outliers. So we will use median. 
+
+#Adding a vertical line that’s the median, to each graph
+
+q2_ds2 = q2_ds2 %>%
+  group_by(year) %>%
+  summarise(vline = median(duration_min))
+
+q2_p2 = q2_p2 + 
+  geom_vline( data = q2_ds2 , aes(xintercept = vline)) 
+
+q2_p2 = q2_p2 + 
+  geom_text(data = q2_ds2, aes(label = paste("Median = " , vline), x = vline, y = Inf),size = 3,hjust = -0.1, vjust = 0.9, fontface = "bold" )
+  
+q2_p2
+  
+```
+
+
+
+### Discussions  
+  
+For the first visualisation, it is hoped that the reader will be able to see that track duration distribution has gradually shifted to the left; mode duration values have also decreased. The plot reveals a decreasing trend of track duration over the specified period, though distribution of track duration remains largely normal. One reason behind the observed trend could be that artists are incentivised by music streaming services to produce shorter songs so that they earn more as per the pay-per-play basis. Through our second visualisation, we shall be able to discover if shorter songs are indeed more popular and fuel artists to produce shorter tracks.  
+ 
+
+From the second visualisation, readers can observe that median track duration has decreased consistently over the years, except from 2011 to 2012. The plot also reveals that at every track length, song popularity varies a lot and thus, we cannot observe a clear pattern between track duration and track popularity. Readers can see that song popularity peaks in and around the 3.5 minute mark and slightly tapers as you move away from it in either direction. 
+We believe the main motivation for artists to reduce song duration is revenue. On Spotify, artists get paid according to the number of streams and a song must be played for longer than 30 seconds (0.5 minutes) to be considered a stream. So if a shorter song is played over and over, or if an album is packed with more songs of shorter duration rather than fewer longer songs, the album would generate a higher revenue. Thus, it could be more profitable to have a shorter song. 
+
+Going into a brief discussion of the limitations and evaluations, for the first visualisation, entries from decades before the 1990s were excluded as they constituted a small percentage of the data and were deemed to be insufficient to be used for creating a density curve that generalises song duration for that decade. Had there been more data available for the decades before the 1990s, we would be more confident of plotting a multiple density plot for the past 7 decades. For the second visualisation, we only included data from the year 2010 because we wanted to avoid huge discrepancies between the number of observations in each year. However, as seen on the graph, there is still a big variation between data points in each year. Moreover, as most data points are concentrated in one region, it is difficult to see individual data points. We attempted to resolve this issue by using a colour gradient for `count` (number of songs) with two contrasting colours. 
+
+## Reference
+
+**Data Source**:  
+https://github.com/rfordatascience/tidytuesday/blob/master/data/2020/2020-01-21/readme.md
+
+**Other References**:  
+https://www.ipr.edu/blogs/audio-production/transformation-sound-recording-technology/
+
+https://fortune.com/2019/01/17/shorter-songs-spotify/
+
+https://www.vox.com/2014/8/18/6003271/why-are-songs-3-minutes-long
+
+https://www.dailymail.co.uk/sciencetech/article-9085211/Pop-songs-shorter-decade-faltering-attention-spans.html
+
+https://www.hypebot.com/hypebot/2021/01/short-attention-spans-are-dramatically-altering-songwriting-heres-how.html
+
+https://www.theverge.com/2019/5/28/18642978/music-streaming-spotify-song-length-distribution-production-switched-on-pop-vergecast-interview
+
+https://www.planetarygroup.com/do-artists-get-paid-every-time-song-played-spotify/
+
+https://www.hypebot.com/hypebot/2021/11/how-spotify-royalties-actually-work.html
+
+https://www.kaylinpavlik.com/classifying-songs-genres/
+
+
+
+
+
